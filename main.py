@@ -1,13 +1,15 @@
+import argparse
 import numpy as np
 import open3d as o3d
 from plyfile import PlyData
+import pylas
 
 
 def get_ply_data(input_file):
     plydata = PlyData.read(input_file)
     pc = plydata['vertex'].data
     angles = pc['scalar_ScanAngleRank']
-    angles = np.asarray(angles, dtype=np.int)
+    angles = np.asarray(angles, dtype=np.float64)
     labels = pc['scalar_Label']
     labels = np.asarray(labels, dtype=np.ubyte)
     return angles, labels, pc
@@ -59,25 +61,50 @@ def process_cloud(pc, angles, labels):
     x, y, z, angles = filter_by_height_diff((x, y, z, angles),
                                             min_diff)
 
-    draw_pc(angles, x, y, z)
+    return (x, y, z)
 
 
-def draw_pc(angles, x, y, z):
-    ground_array = np.vstack((x, y, z)).transpose()
-    cloud = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(ground_array))
+def draw_pc(cloud_array):
+    x, y, z = cloud_array
+    cloud_array = np.vstack((x, y, z)).transpose()
+    cloud = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(cloud_array))
+
     cloud.colors = o3d.utility.Vector3dVector(np.vstack(((z - 133.8),
-                                                         np.zeros(len(angles)),
-                                                         np.zeros(len(angles))))
+                                                         np.zeros(len(cloud.points)),
+                                                         np.zeros(len(cloud.points))))
                                               .transpose()
                                               )
+
     obb = cloud.get_oriented_bounding_box()
     obb.color = (0, 1, 0)
     o3d.visualization.draw_geometries([cloud, obb])
 
 
+def write_las(cloud_array, outpath):
+    x, y, z = cloud_array
+    las = pylas.create()
+    las.x = x
+    las.y = y
+    las.z = z
+    savepath = outpath + "/" + 'curb_cloud.las'
+    las.write(savepath)
+    print(f"Successfully save curb cloud to {savepath}")
+
+
 if __name__ == '__main__':
-    input_file = "/home/egor/workspace/python_ws/Toronto_3D/L004.ply"
+    parser = argparse.ArgumentParser("Road curb cloud segmentation")
+    parser.add_argument("input_file",
+                        help="path to .ply file")
+    parser.add_argument("--output_dir",
+                        default=".",
+                        help="path to output .las file")
 
-    angles, labels, pc = get_ply_data(input_file)
+    args = parser.parse_args()
 
-    process_cloud(pc, angles, labels)
+    angles, labels, pc = get_ply_data(args.input_file)
+
+    curb_cloud = process_cloud(pc, angles, labels)
+
+    write_las(curb_cloud, args.output_dir)
+
+    draw_pc(curb_cloud)
